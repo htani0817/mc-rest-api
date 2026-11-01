@@ -1,0 +1,456 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MC REST API",
+    "version": "1.2.0",
+    "description": "NeoForge 26.2 専用サーバーを操作する REST API。成功時は {\"data\": ...}、失敗時は {\"error\": {\"code\", \"message\"}} を返す。認証は Authorization: Bearer <token>。権限は read < write < admin。プレイヤー指定 {player} は名前でも UUID でもよい。ディメンション {dim} は overworld / the_nether / the_end / minecraft:xxx。"
+  },
+  "servers": [{ "url": "http://127.0.0.1:8765/api/v1" }],
+  "security": [{ "bearer": [] }],
+  "tags": [
+    { "name": "server", "description": "サーバー本体" },
+    { "name": "settings", "description": "サーバー設定・ゲームルール" },
+    { "name": "players", "description": "プレイヤー" },
+    { "name": "access", "description": "OP・ホワイトリスト・BAN" },
+    { "name": "worlds", "description": "ワールド" },
+    { "name": "data", "description": "スコアボード・データパック・Mod・レジストリ" },
+    { "name": "console", "description": "コンソール・チャット・イベント" },
+    { "name": "files", "description": "ファイル管理（admin）" },
+    { "name": "backups", "description": "バックアップ（admin）" },
+    { "name": "history", "description": "履歴とログ（admin）" }
+  ],
+  "paths": {
+    "/health": {
+      "get": { "tags": ["server"], "summary": "死活確認（認証不要）", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/openapi.json": {
+      "get": { "tags": ["server"], "summary": "この仕様書（認証不要）", "security": [], "responses": { "200": { "description": "OpenAPI 文書" } } }
+    },
+    "/server": {
+      "get": { "tags": ["server"], "summary": "サーバー情報（バージョン・MOTD・ポート・Bukkit 情報・起動時間など）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/server/status": {
+      "get": { "tags": ["server"], "summary": "状態（準備完了・人数・TPS・MSPT・自動保存・予告中の再起動時刻 restartAt）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/performance": {
+      "get": { "tags": ["server"], "summary": "性能（TPS・MSPT〈全体/ディメンション別〉・ロード済みチャンク・エンティティ数・メモリ・GC・スレッド・CPU・ディスク）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/server/save": {
+      "post": {
+        "tags": ["server"], "summary": "全ワールドを保存（save-all）", "x-scope": "write",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "flush": { "type": "boolean", "default": false, "description": "true で save-all flush 相当" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/server/stop": {
+      "post": { "tags": ["server"], "summary": "サーバーを停止する（終了コード 0。立ち上げ直さない）", "x-scope": "admin", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/server/restart": {
+      "post": {
+        "tags": ["server"], "summary": "予告してから停止し、終了コード restartExitCode（既定 75）で Java を終わらせる。立ち上げ直すのは起動した側（systemd の Restart=on-failure）", "x-scope": "admin",
+        "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": { "delaySeconds": { "type": "integer", "minimum": 0, "maximum": 600, "default": 10, "description": "予告してから止めるまでの秒数。チャットで 300・120・60・30・10・5〜1 秒前に知らせる" }, "message": { "type": "string", "description": "予告に添える理由（1 行）" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" } }
+      },
+      "delete": { "tags": ["server"], "summary": "予告中の再起動を取り消す", "x-scope": "admin", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/server/broadcast": {
+      "post": {
+        "tags": ["server"], "summary": "全員にシステムメッセージを送る", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["message"], "properties": { "message": { "type": "string" }, "overlay": { "type": "boolean", "default": false, "description": "true でアクションバー表示" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/server/reload": {
+      "post": { "tags": ["server"], "summary": "データパックを再読み込み（/reload）", "x-scope": "admin", "responses": { "200": { "$ref": "#/components/responses/CommandResult" } } }
+    },
+
+    "/settings": {
+      "get": { "tags": ["settings"], "summary": "実行中に変えられる設定 20 項目の一覧", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } },
+      "patch": {
+        "tags": ["settings"], "summary": "設定を変更（複数可。全項目を検証してから適用し、server.properties にも書き戻る）", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Settings" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/settings/{key}": {
+      "get": { "tags": ["settings"], "summary": "設定 1 項目", "x-scope": "read", "parameters": [{ "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/gamerules": {
+      "get": { "tags": ["settings"], "summary": "ゲームルール一覧（key・id・type・category・value・default）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/gamerules/{name}": {
+      "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "keep_inventory または minecraft:keep_inventory" }],
+      "get": { "tags": ["settings"], "summary": "ゲームルール 1 件", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } },
+      "put": {
+        "tags": ["settings"], "summary": "ゲームルールを変更", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["value"], "properties": { "value": { "oneOf": [{ "type": "boolean" }, { "type": "integer" }] } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+
+    "/players": {
+      "get": { "tags": ["players"], "summary": "オンラインのプレイヤー（名前・UUID・ディメンション・座標・ゲームモード・体力・ping）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/players/known": {
+      "get": { "tags": ["players"], "summary": "来たことのあるプレイヤー（usercache.json）と OP・ホワイトリスト・BAN の状態", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/players/{player}": {
+      "get": { "tags": ["players"], "summary": "プレイヤー詳細（オンラインなら体力・満腹度・XP・IP なども）", "x-scope": "read", "parameters": [{ "$ref": "#/components/parameters/Player" }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/players/{player}/inventory": {
+      "get": { "tags": ["players"], "summary": "持ち物（オンラインのみ。slot 0-8 ホットバー / 9-35 / 36-39 防具 / 40 オフハンド）", "x-scope": "read", "parameters": [{ "$ref": "#/components/parameters/Player" }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/players/{player}/inventory/clear": {
+      "post": {
+        "tags": ["players"], "summary": "持ち物を消す（/clear）", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Player" }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "item": { "type": "string", "description": "消すアイテム ID（省略で全部）" }, "maxCount": { "type": "integer" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/CommandResult" } }
+      }
+    },
+    "/players/{player}/enderchest": {
+      "get": { "tags": ["players"], "summary": "エンダーチェスト（オンラインのみ）", "x-scope": "read", "parameters": [{ "$ref": "#/components/parameters/Player" }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/players/{player}/give": {
+      "post": {
+        "tags": ["players"], "summary": "アイテムを渡す（/give）", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Player" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["item"], "properties": { "item": { "type": "string", "example": "minecraft:diamond" }, "count": { "type": "integer", "default": 1, "minimum": 1, "maximum": 6400 }, "components": { "type": "string", "example": "[minecraft:custom_name='\"すごい剣\"']" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/CommandResult" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/players/{player}/kick": {
+      "post": {
+        "tags": ["players"], "summary": "キック", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Player" }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "reason": { "type": "string" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/players/{player}/teleport": {
+      "post": {
+        "tags": ["players"], "summary": "テレポート（座標か、別のプレイヤーの位置）", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Player" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" }, "dimension": { "type": "string" }, "yaw": { "type": "number" }, "pitch": { "type": "number" }, "target": { "type": "string", "description": "指定するとこのプレイヤーの位置へ" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/CommandResult" } }
+      }
+    },
+    "/players/{player}/gamemode": {
+      "put": {
+        "tags": ["players"], "summary": "ゲームモード変更", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Player" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["mode"], "properties": { "mode": { "$ref": "#/components/schemas/GameMode" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/CommandResult" } }
+      }
+    },
+    "/players/{player}/vitals": {
+      "patch": {
+        "tags": ["players"], "summary": "体力・満腹度・隠し満腹度・XP を変更", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Player" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "health": { "type": "number" }, "food": { "type": "integer", "minimum": 0, "maximum": 20 }, "saturation": { "type": "number" }, "xpLevel": { "type": "integer" }, "xpPoints": { "type": "integer" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/players/{player}/effects": {
+      "parameters": [{ "$ref": "#/components/parameters/Player" }],
+      "get": { "tags": ["players"], "summary": "エフェクト一覧", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } },
+      "post": {
+        "tags": ["players"], "summary": "エフェクト付与（/effect give）", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["effect"], "properties": { "effect": { "type": "string", "example": "minecraft:speed" }, "seconds": { "oneOf": [{ "type": "integer" }, { "const": "infinite" }], "default": 30 }, "amplifier": { "type": "integer", "default": 0 }, "hideParticles": { "type": "boolean", "default": false } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/CommandResult" } }
+      },
+      "delete": { "tags": ["players"], "summary": "エフェクト解除（?effect= で 1 つだけ）", "x-scope": "write", "parameters": [{ "name": "effect", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/CommandResult" } } }
+    },
+    "/players/{player}/message": {
+      "post": {
+        "tags": ["players"], "summary": "そのプレイヤーにだけメッセージ", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Player" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["message"], "properties": { "message": { "type": "string" }, "overlay": { "type": "boolean" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/players/{player}/stats": {
+      "get": { "tags": ["players"], "summary": "統計（オフラインも可。world/players/stats の JSON）", "x-scope": "read", "parameters": [{ "$ref": "#/components/parameters/Player" }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/players/{player}/advancements": {
+      "get": { "tags": ["players"], "summary": "進捗（オフラインも可）", "x-scope": "read", "parameters": [{ "$ref": "#/components/parameters/Player" }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+
+    "/operators": {
+      "get": { "tags": ["access"], "summary": "OP 一覧", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } },
+      "post": {
+        "tags": ["access"], "summary": "OP にする", "x-scope": "admin",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["player"], "properties": { "player": { "type": "string" }, "level": { "type": "integer", "minimum": 1, "maximum": 4 }, "bypassesPlayerLimit": { "type": "boolean" } } } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/operators/{player}": {
+      "delete": { "tags": ["access"], "summary": "OP を外す", "x-scope": "admin", "parameters": [{ "$ref": "#/components/parameters/Player" }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/allowlist": {
+      "get": { "tags": ["access"], "summary": "ホワイトリスト（enabled・enforced・players）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } },
+      "post": { "tags": ["access"], "summary": "追加", "x-scope": "write", "requestBody": { "$ref": "#/components/requestBodies/PlayerBody" }, "responses": { "201": { "$ref": "#/components/responses/Ok" } } },
+      "put": {
+        "tags": ["access"], "summary": "丸ごと置き換え（外れた人はキックされる）", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["players"], "properties": { "players": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      },
+      "delete": { "tags": ["access"], "summary": "全部消す", "x-scope": "write", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/allowlist/{player}": {
+      "delete": { "tags": ["access"], "summary": "外す", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Player" }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/bans": {
+      "get": { "tags": ["access"], "summary": "BAN 一覧", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } },
+      "post": {
+        "tags": ["access"], "summary": "BAN（オンラインなら切断）", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["player"], "properties": { "player": { "type": "string" }, "reason": { "type": "string" }, "source": { "type": "string" }, "expires": { "type": "string", "format": "date-time", "description": "省略で無期限" } } } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" } }
+      },
+      "delete": { "tags": ["access"], "summary": "全部解除", "x-scope": "admin", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/bans/{player}": {
+      "delete": { "tags": ["access"], "summary": "BAN 解除", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Player" }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/ip-bans": {
+      "get": { "tags": ["access"], "summary": "IP BAN 一覧", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } },
+      "post": {
+        "tags": ["access"], "summary": "IP BAN（ip か、オンラインの player のどちらか）", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "ip": { "type": "string" }, "player": { "type": "string" }, "reason": { "type": "string" }, "source": { "type": "string" }, "expires": { "type": "string", "format": "date-time" } } } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Ok" } }
+      },
+      "delete": { "tags": ["access"], "summary": "全部解除", "x-scope": "admin", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/ip-bans/{ip}": {
+      "delete": { "tags": ["access"], "summary": "IP BAN 解除", "x-scope": "write", "parameters": [{ "name": "ip", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+
+    "/worlds": {
+      "get": { "tags": ["worlds"], "summary": "ディメンション一覧（時刻・天候・ロード済みチャンク）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/worlds/{dim}": {
+      "get": { "tags": ["worlds"], "summary": "ディメンション詳細（シード・難易度・スポーン・ワールドボーダー・エンティティ数など）", "x-scope": "read", "parameters": [{ "$ref": "#/components/parameters/Dim" }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/worlds/{dim}/time": {
+      "put": {
+        "tags": ["worlds"], "summary": "時刻（/time）", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Dim" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "time": { "type": "integer" }, "marker": { "type": "string", "example": "minecraft:day" }, "add": { "type": "integer" }, "paused": { "type": "boolean" }, "rate": { "type": "number" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/WorldCommand" } }
+      }
+    },
+    "/worlds/{dim}/weather": {
+      "put": {
+        "tags": ["worlds"], "summary": "天候（/weather）", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Dim" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["type"], "properties": { "type": { "enum": ["clear", "rain", "thunder"] }, "seconds": { "type": "integer" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/WorldCommand" } }
+      }
+    },
+    "/worlds/{dim}/spawn": {
+      "put": {
+        "tags": ["worlds"], "summary": "ワールドのスポーン地点（/setworldspawn）", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Dim" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["x", "y", "z"], "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "z": { "type": "integer" }, "angle": { "type": "number" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/WorldCommand" } }
+      }
+    },
+    "/worlds/{dim}/worldborder": {
+      "put": {
+        "tags": ["worlds"], "summary": "ワールドボーダー（/worldborder）", "x-scope": "write", "parameters": [{ "$ref": "#/components/parameters/Dim" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "size": { "type": "number" }, "seconds": { "type": "integer" }, "centerX": { "type": "number" }, "centerZ": { "type": "number" }, "damagePerBlock": { "type": "number" }, "damageBuffer": { "type": "number" }, "warningDistance": { "type": "integer" }, "warningTime": { "type": "integer" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/WorldCommand" } }
+      }
+    },
+    "/worlds/{dim}/entities": {
+      "parameters": [{ "$ref": "#/components/parameters/Dim" }],
+      "get": {
+        "tags": ["worlds"], "summary": "エンティティ一覧", "x-scope": "read",
+        "parameters": [{ "name": "type", "in": "query", "schema": { "type": "string" } }, { "name": "x", "in": "query", "schema": { "type": "number" } }, { "name": "y", "in": "query", "schema": { "type": "number" } }, { "name": "z", "in": "query", "schema": { "type": "number" } }, { "name": "radius", "in": "query", "schema": { "type": "number" } }, { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 200, "maximum": 5000 } }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      },
+      "delete": {
+        "tags": ["worlds"], "summary": "エンティティを除去（/kill。type 必須・プレイヤー不可）", "x-scope": "write",
+        "parameters": [{ "name": "type", "in": "query", "required": true, "schema": { "type": "string" } }, { "name": "x", "in": "query", "schema": { "type": "number" } }, { "name": "y", "in": "query", "schema": { "type": "number" } }, { "name": "z", "in": "query", "schema": { "type": "number" } }, { "name": "radius", "in": "query", "schema": { "type": "number" } }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/worlds/{dim}/blocks/{x}/{y}/{z}": {
+      "parameters": [{ "$ref": "#/components/parameters/Dim" }, { "name": "x", "in": "path", "required": true, "schema": { "type": "integer" } }, { "name": "y", "in": "path", "required": true, "schema": { "type": "integer" } }, { "name": "z", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "get": { "tags": ["worlds"], "summary": "ブロック（ロード済みチャンクのみ。未ロードは 409）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "409": { "$ref": "#/components/responses/Error" } } },
+      "put": {
+        "tags": ["worlds"], "summary": "ブロックを置く（/setblock）", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["block"], "properties": { "block": { "type": "string", "example": "minecraft:oak_stairs[facing=north]" }, "mode": { "enum": ["replace", "destroy", "keep", "strict"], "default": "replace" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/WorldCommand" } }
+      }
+    },
+
+    "/scoreboard/objectives": {
+      "get": { "tags": ["data"], "summary": "スコアの目的一覧", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } },
+      "post": {
+        "tags": ["data"], "summary": "目的を追加", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "criteria": { "type": "string", "default": "dummy" }, "displayName": { "type": "string" } } } } } },
+        "responses": { "201": { "$ref": "#/components/responses/CommandResult" } }
+      }
+    },
+    "/scoreboard/objectives/{name}": {
+      "delete": { "tags": ["data"], "summary": "目的を削除", "x-scope": "write", "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/CommandResult" } } }
+    },
+    "/scoreboard/scores": {
+      "get": { "tags": ["data"], "summary": "スコア（objective か holder のどちらか必須）", "x-scope": "read", "parameters": [{ "name": "objective", "in": "query", "schema": { "type": "string" } }, { "name": "holder", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/scoreboard/scores/{objective}/{holder}": {
+      "parameters": [{ "name": "objective", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "holder", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "put": { "tags": ["data"], "summary": "スコアを設定", "x-scope": "write", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["score"], "properties": { "score": { "type": "integer" } } } } } }, "responses": { "200": { "$ref": "#/components/responses/CommandResult" } } },
+      "delete": { "tags": ["data"], "summary": "スコアをリセット", "x-scope": "write", "responses": { "200": { "$ref": "#/components/responses/CommandResult" } } }
+    },
+    "/scoreboard/teams": {
+      "get": { "tags": ["data"], "summary": "チーム一覧", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/datapacks": {
+      "get": { "tags": ["data"], "summary": "データパック一覧", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/datapacks/{id}/enable": {
+      "post": { "tags": ["data"], "summary": "有効化（リロードを伴う）", "x-scope": "admin", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "例: file%2Fmypack（/ は %2F）" }], "responses": { "200": { "$ref": "#/components/responses/CommandResult" } } }
+    },
+    "/datapacks/{id}/disable": {
+      "post": { "tags": ["data"], "summary": "無効化（リロードを伴う）", "x-scope": "admin", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/CommandResult" } } }
+    },
+    "/mods": {
+      "get": { "tags": ["data"], "summary": "導入済み Mod", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/plugins": {
+      "get": { "tags": ["data"], "summary": "Bukkit プラグイン（Youer などのハイブリッドのみ。それ以外は hybrid=false）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/registries": {
+      "get": { "tags": ["data"], "summary": "レジストリ名の一覧", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/registries/{registry}": {
+      "get": { "tags": ["data"], "summary": "レジストリの ID 一覧（item・block・entity_type・mob_effect・enchantment など）", "x-scope": "read", "parameters": [{ "name": "registry", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "q", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+
+    "/console/command": {
+      "post": {
+        "tags": ["console"], "summary": "任意のコマンドを実行（権限レベル 4）", "x-scope": "admin",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["command"], "properties": { "command": { "type": "string", "example": "list" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/CommandResult" } }
+      }
+    },
+    "/console/logs": {
+      "get": { "tags": ["console"], "summary": "直近のサーバーログ", "x-scope": "admin", "parameters": [{ "name": "lines", "in": "query", "schema": { "type": "integer", "default": 200 } }, { "name": "level", "in": "query", "schema": { "enum": ["DEBUG", "INFO", "WARN", "ERROR"] }, "description": "指定レベル以上" }, { "name": "q", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/chat/history": {
+      "get": { "tags": ["console"], "summary": "チャット履歴（起動後のみ）", "x-scope": "read", "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100 } }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/chat": {
+      "post": {
+        "tags": ["console"], "summary": "チャットに送信（[sender] message の形で表示）", "x-scope": "write",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["message"], "properties": { "message": { "type": "string" }, "sender": { "type": "string", "default": "Server" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/events/ticket": {
+      "post": { "tags": ["console"], "summary": "SSE・ダウンロード用の使い捨てチケット（30 秒有効）", "x-scope": "read", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/events": {
+      "get": {
+        "tags": ["console"], "summary": "イベントの SSE。EventSource から ?ticket= で接続する。log は admin のみ", "x-scope": "read",
+        "parameters": [{ "name": "ticket", "in": "query", "schema": { "type": "string" } }, { "name": "types", "in": "query", "schema": { "type": "string", "example": "chat,join,leave" }, "description": "log, chat, join, leave, death, advancement, command, server" }],
+        "responses": { "200": { "description": "text/event-stream。event: <種別> / data: <JSON>。15 秒ごとに keep-alive コメント" } }
+      }
+    },
+
+    "/files": {
+      "get": { "tags": ["files"], "summary": "一覧（path がファイルならその情報）", "x-scope": "admin", "parameters": [{ "$ref": "#/components/parameters/Path" }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } },
+      "delete": { "tags": ["files"], "summary": "削除（中身のあるディレクトリは recursive=true）", "x-scope": "admin", "parameters": [{ "$ref": "#/components/parameters/PathRequired" }, { "name": "recursive", "in": "query", "schema": { "type": "boolean" } }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "409": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/files/content": {
+      "get": { "tags": ["files"], "summary": "ダウンロード（?ticket= でも可）", "x-scope": "admin", "parameters": [{ "$ref": "#/components/parameters/PathRequired" }], "responses": { "200": { "description": "ファイルの中身" } } },
+      "put": {
+        "tags": ["files"], "summary": "アップロード・上書き（本文がそのままファイルになる）", "x-scope": "admin",
+        "parameters": [{ "$ref": "#/components/parameters/PathRequired" }, { "name": "overwrite", "in": "query", "schema": { "type": "boolean", "default": true } }],
+        "requestBody": { "required": true, "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "201": { "$ref": "#/components/responses/Ok" }, "409": { "$ref": "#/components/responses/Error" }, "413": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/files/mkdir": {
+      "post": { "tags": ["files"], "summary": "ディレクトリ作成", "x-scope": "admin", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["path"], "properties": { "path": { "type": "string" } } } } } }, "responses": { "201": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/files/move": {
+      "post": { "tags": ["files"], "summary": "移動・名前変更", "x-scope": "admin", "requestBody": { "$ref": "#/components/requestBodies/FromTo" }, "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/files/copy": {
+      "post": { "tags": ["files"], "summary": "ファイルをコピー", "x-scope": "admin", "requestBody": { "$ref": "#/components/requestBodies/FromTo" }, "responses": { "201": { "$ref": "#/components/responses/Ok" } } }
+    },
+
+    "/backups": {
+      "get": { "tags": ["backups"], "summary": "バックアップ一覧", "x-scope": "admin", "responses": { "200": { "$ref": "#/components/responses/Ok" } } },
+      "post": { "tags": ["backups"], "summary": "作成開始（非同期。返ってきた id でジョブを確認）", "x-scope": "admin", "responses": { "202": { "$ref": "#/components/responses/Ok" }, "409": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/backups/jobs": {
+      "get": { "tags": ["backups"], "summary": "ジョブ履歴（直近 20 件）", "x-scope": "admin", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/backups/jobs/{id}": {
+      "get": { "tags": ["backups"], "summary": "ジョブの状態（state: running / done / failed）", "x-scope": "admin", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/history": {
+      "get": { "tags": ["history"], "summary": "保存している履歴とログの一覧（チャット・出来事・操作の記録・サーバーログ。どれも直近 keepDays 日分）", "x-scope": "admin", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/history/{kind}/{name}": {
+      "get": {
+        "tags": ["history"], "summary": "履歴やログのファイルをダウンロード（?ticket= でも可）", "x-scope": "admin",
+        "parameters": [
+          { "name": "kind", "in": "path", "required": true, "schema": { "enum": ["chat", "events", "audit", "server"] } },
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" }, "description": "一覧の name（例: chat-2026-11-01.log、latest.log、2026-11-01-1.log.gz）" }
+        ],
+        "responses": { "200": { "description": "ファイルの中身" }, "400": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/backups/{name}": {
+      "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "tags": ["backups"], "summary": "ダウンロード（?ticket= でも可）", "x-scope": "admin", "responses": { "200": { "description": "zip" } } },
+      "delete": { "tags": ["backups"], "summary": "削除", "x-scope": "admin", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer", "description": "config/mc_rest_api/tokens.json のトークン" }
+    },
+    "parameters": {
+      "Player": { "name": "player", "in": "path", "required": true, "schema": { "type": "string" }, "description": "名前か UUID" },
+      "Dim": { "name": "dim", "in": "path", "required": true, "schema": { "type": "string" }, "description": "overworld / the_nether / the_end / minecraft:xxx" },
+      "Path": { "name": "path", "in": "query", "schema": { "type": "string" }, "description": "サーバーディレクトリからの相対パス" },
+      "PathRequired": { "name": "path", "in": "query", "required": true, "schema": { "type": "string" }, "description": "サーバーディレクトリからの相対パス" }
+    },
+    "requestBodies": {
+      "PlayerBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["player"], "properties": { "player": { "type": "string" } } } } } },
+      "FromTo": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["from", "to"], "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "overwrite": { "type": "boolean", "default": false } } } } } }
+    },
+    "responses": {
+      "Ok": { "description": "成功", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": {} } } } } },
+      "Error": { "description": "失敗", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "CommandResult": { "description": "コマンドの実行結果", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/CommandResult" } } } } } },
+      "WorldCommand": { "description": "実行したコマンドの結果と、変更後のディメンション情報", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "object", "properties": { "results": { "type": "array", "items": { "$ref": "#/components/schemas/CommandResult" } }, "world": { "type": "object" } } } } } } } }
+    },
+    "schemas": {
+      "Error": { "type": "object", "properties": { "error": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" } } } } },
+      "CommandResult": { "type": "object", "properties": { "success": { "type": "boolean" }, "result": { "type": "integer" }, "output": { "type": "array", "items": { "type": "string" } } } },
+      "GameMode": { "enum": ["survival", "creative", "adventure", "spectator"] },
+      "Settings": {
+        "type": "object",
+        "properties": {
+          "autosave": { "type": "boolean" },
+          "difficulty": { "enum": ["peaceful", "easy", "normal", "hard"] },
+          "enforce_allowlist": { "type": "boolean" },
+          "use_allowlist": { "type": "boolean" },
+          "max_players": { "type": "integer" },
+          "pause_when_empty_seconds": { "type": "integer" },
+          "player_idle_timeout": { "type": "integer" },
+          "allow_flight": { "type": "boolean" },
+          "motd": { "type": "string" },
+          "spawn_protection_radius": { "type": "integer" },
+          "force_game_mode": { "type": "boolean" },
+          "game_mode": { "$ref": "#/components/schemas/GameMode" },
+          "view_distance": { "type": "integer", "minimum": 2, "maximum": 32 },
+          "simulation_distance": { "type": "integer", "minimum": 2, "maximum": 32 },
+          "accept_transfers": { "type": "boolean" },
+          "status_heartbeat_interval": { "type": "integer" },
+          "operator_user_permission_level": { "type": "integer", "minimum": 0, "maximum": 4 },
+          "hide_online_players": { "type": "boolean" },
+          "status_replies": { "type": "boolean" },
+          "entity_broadcast_range": { "type": "integer", "minimum": 10, "maximum": 1000 }
+        }
+      }
+    }
+  }
+}
