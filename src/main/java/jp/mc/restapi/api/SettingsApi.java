@@ -7,7 +7,9 @@ import jp.mc.restapi.http.Json;
 import jp.mc.restapi.http.Request;
 import jp.mc.restapi.http.Router;
 import jp.mc.restapi.http.Scope;
+import jp.mc.restapi.util.CommandRunner;
 import net.minecraft.server.dedicated.DedicatedServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.Difficulty;
@@ -36,12 +38,23 @@ public final class SettingsApi {
     public SettingsApi(ApiContext ctx) {
         this.ctx = ctx;
         bool("autosave", DedicatedServer::isAutoSave, DedicatedServer::setAutoSave);
-        add("difficulty", s -> s.getWorldData().getDifficulty().getSerializedName(), v -> {
+        // Paper 系（Youer など）は難易度がワールドごとで、getWorldData() の値は /difficulty でも変わらないため、オーバーワールドの値を返す
+        add("difficulty", s -> s.overworld().getDifficulty().getSerializedName(), v -> {
             Difficulty d = v.isJsonPrimitive() ? Difficulty.byName(v.getAsString()) : null;
             if (d == null) {
                 throw ApiException.badRequest("difficulty は peaceful / easy / normal / hard のどれかです");
             }
-            return s -> s.setDifficulty(d);
+            return s -> {
+                // server.properties への書き戻し。バニラはここで全ワールドにも効くが、Paper 系はワールドに効かない
+                s.setDifficulty(d);
+                if (!s.isHardcore()) {
+                    for (ServerLevel level : s.getAllLevels()) {
+                        if (level.getDifficulty() != d) {
+                            CommandRunner.run(s, level, "difficulty " + d.getSerializedName());
+                        }
+                    }
+                }
+            };
         });
         bool("enforce_allowlist", DedicatedServer::isEnforceWhitelist, (s, v) -> {
             s.setEnforceWhitelist(v);

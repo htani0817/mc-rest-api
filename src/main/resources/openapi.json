@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "MC REST API",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "NeoForge 26.2 専用サーバーを操作する REST API。成功時は {\"data\": ...}、失敗時は {\"error\": {\"code\", \"message\"}} を返す。認証は Authorization: Bearer <token>。権限は read < write < admin。プレイヤー指定 {player} は名前でも UUID でもよい。ディメンション {dim} は overworld / the_nether / the_end / minecraft:xxx。"
   },
   "servers": [{ "url": "http://127.0.0.1:8765/api/v1" }],
