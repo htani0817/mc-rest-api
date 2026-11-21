@@ -92,8 +92,9 @@ public final class GameEvents {
         holder.value().display().ifPresent(display -> {
             Map<String, Object> m = player(e.getEntity());
             m.put("advancement", holder.id().toString());
-            m.put("title", display.getTitle().getString());
-            m.put("type", display.getType().getSerializedName());
+            // 26.3 で DisplayInfo は record になり、getTitle()/getType() は title()/type() になった
+            m.put("title", display.title().getString());
+            m.put("type", display.type().getSerializedName());
             emit("advancement", m);
         });
     }
