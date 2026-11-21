@@ -76,7 +76,7 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
 sourceSets.main.resources.srcDir generateModMetadata
 neoForge.ideSyncTask generateModMetadata
 
-// jar 名: mc-rest-api-1.3.0+mc26.3-neoforge.jar
+// jar 名: mc-rest-api-1.0.0+mc26.3-neoforge.jar
 tasks.named('jar', Jar) {
     archiveFileName = "mc-rest-api-${mod_version}+mc${minecraft_version}-neoforge.jar"
     // 配布する jar にもライセンスを入れる
