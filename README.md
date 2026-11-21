@@ -1,8 +1,8 @@
 # MC REST API
 
-Minecraft サーバーの情報取得と操作を、REST API（JSON）で行える NeoForge 26.2 のサーバー専用 Mod です。管理画面や Bot のバックエンドに使う前提で作りました。
+Minecraft サーバーの情報取得と操作を、REST API（JSON）で行える NeoForge 26.3 のサーバー専用 Mod です。管理画面や Bot のバックエンドに使う前提で作りました。
 
-- 対象: Minecraft 26.2 / NeoForge 26.2.0.88 以降（Youer のようなハイブリッドサーバーでも動きます）
+- 対象: Minecraft 26.3 / NeoForge 26.3.0.102 以降（Youer のようなハイブリッドサーバーでも動きます。Minecraft 26.2 で使う場合は [v1.2.1](https://github.com/htani0817/mc-rest-api/releases/tag/v1.2.1) を使ってください）
 - 入れる場所: サーバーだけ（クライアントには要りません）
 - エンドポイント: 95 個。仕様は [openapi.json](src/main/resources/openapi.json)（起動中は `GET /api/v1/openapi.json` でも取れます）
 - 既定では `127.0.0.1:8765` だけで待ち受けます
@@ -37,7 +37,7 @@ Minecraft サーバーの情報取得と操作を、REST API（JSON）で行え�
 
 ## 導入
 
-1. [Releases](https://github.com/htani0817/mc-rest-api/releases/latest) から `mc-rest-api-<版>+mc26.2-neoforge.jar` をダウンロードし、サーバーの `mods/` に置きます
+1. [Releases](https://github.com/htani0817/mc-rest-api/releases/latest) から `mc-rest-api-<版>+mc26.3-neoforge.jar` をダウンロードし、サーバーの `mods/` に置きます
 2. サーバーを起動（再起動）します
 3. ログに次の 2 行が出れば動いています
 
@@ -204,6 +204,7 @@ bash tools/smoke-test.sh --tokens config/mc_rest_api/tokens.json --write --playe
 - 持ち物・エンダーチェスト・エフェクトはオンラインのプレイヤーだけです（オフラインは 404）。統計と進捗はオフラインでも取れます
 - API から実行したコマンドは、バニラのコンソールと同じく OP のチャットにも通知されます
 - Youer など Paper 系のサーバーは難易度をワールドごとに持ちます。設定の `difficulty` はオーバーワールドの値を返し、変えるときは全ワールドに同じ値を入れます
+- ゲームルールも同じで、Youer 26.3 ではワールドごとです。`GET /gamerules` はオーバーワールドの値を返し、`PUT` は値が違うワールドごとに `/gamerule` を実行して全ワールドをそろえます
 - 26.2 で時刻は「ワールドクロック」方式に変わっています。`clockTime` はそのディメンションの既定の時計の値です
 - ファイル管理は `..` とシンボリックリンクのどちらでも、`filesRoot` の外には出られません
 
